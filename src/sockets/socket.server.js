@@ -2,7 +2,7 @@ import { Server } from "socket.io";
 import cookie from "cookie";
 import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
-import generateResponse from "../services/ai.service.js";
+import { generateResponse, generateEmbedding } from "../services/ai.service.js";
 import Message from "../models/message.model.js";
 
 function initSocketServer(httpServer) {
@@ -39,12 +39,16 @@ function initSocketServer(httpServer) {
     socket.on("ai-message", async (msgPayload) => {
       console.log("AI Message : ", msgPayload);
 
-      await Message.create({
-        user: socket.user._id,
-        chat: msgPayload.chat,
-        content: msgPayload.content,
-        role: "user",
-      });
+      // await Message.create({
+      //   user: socket.user._id,
+      //   chat: msgPayload.chat,
+      //   content: msgPayload.content,
+      //   role: "user",
+      // });
+
+      const embedding = await generateEmbedding(msgPayload.content);
+      console.log("Embedding : ", embedding);
+      return;
 
       const chatHistory = (
         await Message.find({ chat: msgPayload.chat })
