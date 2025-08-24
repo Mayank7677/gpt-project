@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import { generateResponse, generateEmbedding } from "../services/ai.service.js";
 import Message from "../models/message.model.js";
+import { createMemory, queryMemory } from "../services/vector.service.js";
 
 function initSocketServer(httpServer) {
   const io = new Server(httpServer);
@@ -39,21 +40,37 @@ function initSocketServer(httpServer) {
     socket.on("ai-message", async (msgPayload) => {
       console.log("AI Message : ", msgPayload);
 
-      // await Message.create({
-      //   user: socket.user._id,
-      //   chat: msgPayload.chat,
-      //   content: msgPayload.content,
-      //   role: "user",
-      // });
+      const userMessage = await Message.create({
+        user: socket.user._id,
+        chat: msgPayload.chat,
+        content: msgPayload.content,
+        role: "user",
+      });
 
       const embedding = await generateEmbedding(msgPayload.content);
-      console.log("Embedding : ", embedding);
-      return;
+
+      const memory = await queryMemory({
+        queryVector: embedding,
+        limit: 5,
+        metadata: {},
+      });
+
+      console.log("Memory : ", memory);
+
+      await createMemory({
+        vectors: embedding,
+        metadata: {
+          chatId: msgPayload.chat,
+          userId: socket.user._id,
+          text: msgPayload.content,
+        },
+        messageId: userMessage._id,
+      });
 
       const chatHistory = (
         await Message.find({ chat: msgPayload.chat })
           .sort({ createdAt: -1 })
-          .limit(5)
+          .limit(3)
           .lean()
       ).reverse();
 
@@ -66,13 +83,25 @@ function initSocketServer(httpServer) {
         })
       );
 
-      console.log("AI Response : ", response);
-
-      await Message.create({
+      const responseMessage = await Message.create({
         user: socket.user._id,
         chat: msgPayload.chat,
         content: response,
         role: "model",
+      });
+
+      console.log("Response Message : ", responseMessage);
+
+      const responseEmbedding = await generateEmbedding(response);
+
+      await createMemory({
+        vectors: responseEmbedding,
+        metadata: {
+          chatId: msgPayload.chat,
+          userId: socket.user._id,
+          text: response,
+        },
+        messageId: responseMessage._id,
       });
 
       socket.emit("ai-response", {

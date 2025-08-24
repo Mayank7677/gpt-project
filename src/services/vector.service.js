@@ -8,8 +8,13 @@ const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 const gptProjectIndex = pc.Index("gpt-project");
 
 async function createMemory({ vectors, metadata, messageId }) {
-
-    
+  await gptProjectIndex.upsert([
+    {
+      id: messageId,
+      values: vectors,
+      metadata,
+    },
+  ]);
 }
 
 async function queryMemory({ queryVector, limit = 5, metadata }) {
@@ -22,3 +27,5 @@ async function queryMemory({ queryVector, limit = 5, metadata }) {
 
   return data.matches;
 }
+
+export { createMemory, queryMemory };
