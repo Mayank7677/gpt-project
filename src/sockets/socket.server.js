@@ -40,82 +40,101 @@ function initSocketServer(httpServer) {
     socket.on("ai-message", async (msgPayload) => {
       console.log("User Message : ", msgPayload);
 
-      // storing user question in the mongoDB
-      const userMessage = await Message.create({
-        user: socket.user._id,
-        chat: msgPayload.chat,
-        content: msgPayload.content,
-        role: "user",
-      });
+      /* 
+      storing user question in the mongoDB and 
+      converting user's message into vectors
+      */
+      const [userMessage, embedding] = await Promise.all([
+        Message.create({
+          user: socket.user._id,
+          chat: msgPayload.chat,
+          content: msgPayload.content,
+          role: "user",
+        }),
 
-      // Embedding : converting user's message into vectors
-      const embedding = await generateEmbedding(msgPayload.content);
+        generateEmbedding(msgPayload.content),
+      ]);
 
-      // creating long term memory by sending the current's user's message embedding to the pinecone DB
-      const memory = await queryMemory({
-        queryVector: embedding,
-        limit: 5,
-        metadata: {},
-      });
+      /*
+      creating long term memory by sending the current's user's message embedding to the pinecone DB
+      creating short term memory by fetching the last 3 messages from the mongoDB
+      storing user's message embedding in the pinecone DB
+      */
+      const [memory, chatHistory, createdMemory] = await Promise.all([
+        queryMemory({
+          queryVector: embedding,
+          limit: 5,
+          metadata: {
+            userId: socket.user._id, // filtering memory of current user
+          },
+        }),
 
-      // creating long term memory
-      const ltm = [
-        {
-          role: "system",
-          parts: [
-            {
-              text: `
-          these are some previous conversation , use it to answer the user query
-          ${memory.map((item) => item.metadata.text).join("\n")}`,
-            },
-          ],
-        },
-      ];
-
-      console.log("Memory : ", memory);
-
-      // storing user's message embedding in the pinecone DB
-      await createMemory({
-        vectors: embedding,
-        metadata: {
-          chatId: msgPayload.chat,
-          userId: socket.user._id,
-          text: msgPayload.content,
-        },
-        messageId: userMessage._id,
-      });
-
-      // creating short term memory by fetching the last 3 messages from the mongoDB
-      const chatHistory = (
-        await Message.find({ chat: msgPayload.chat })
+        Message.find({ chat: msgPayload.chat })
           .sort({ createdAt: -1 })
           .limit(3)
           .lean()
-      ).reverse();
+          .reverse(),
 
-      // creating short term memory
-      const stm = chatHistory.map((item) => {
-        return {
-          role: item.role,
-          parts: [{ text: item.content }],
-        };
-      });
+        createMemory({
+          vectors: embedding,
+          metadata: {
+            chatId: msgPayload.chat,
+            userId: socket.user._id,
+            text: msgPayload.content,
+          },
+          messageId: userMessage._id,
+        }),
+      ]);
+
+      /*
+      creating long term memory
+      creating short term memory
+      */
+      const [ltm, stm] = await Promise.all([
+        [
+          {
+            role: "system",
+            parts: [
+              {
+                text: `
+          these are some previous conversation , use it to answer the user query
+          ${memory.map((item) => item.metadata.text).join("\n")}`,
+              },
+            ],
+          },
+        ],
+
+        chatHistory.map((item) => {
+          return {
+            role: item.role,
+            parts: [{ text: item.content }],
+          };
+        }),
+      ]);
 
       // generating response using long term memory and short term memory
       const response = await generateResponse([...ltm, ...stm]);
 
-      // storing AI's response in the mongoDB
-      const responseMessage = await Message.create({
-        user: socket.user._id,
-        chat: msgPayload.chat,
+      // emitting AI's response to the client
+      socket.emit("ai-response", {
         content: response,
-        role: "model",
+        chat: msgPayload.chat,
       });
 
-      console.log("Response Message : ", responseMessage);
+      /*
+      storing AI's response in the mongoDB
+      genrating AI's response embedding
+      */
+      const [responseMessage, responseEmbedding] = await Promise.all([
+        Message.create({
+          user: socket.user._id,
+          chat: msgPayload.chat,
+          content: response,
+          role: "model",
+        }),
 
-      // genrating AI's response embedding
-      const responseEmbedding = await generateEmbedding(response);
+        generateEmbedding(response),
+      ]);
 
       // storing AI's response embedding in the pinecone DB
       await createMemory({
@@ -126,12 +145,6 @@ function initSocketServer(httpServer) {
           text: response,
         },
         messageId: responseMessage._id,
-      });
-
-      // emitting AI's response to the client
-      socket.emit("ai-response", {
-        content: response,
-        chat: msgPayload.chat,
       });
     });
   });

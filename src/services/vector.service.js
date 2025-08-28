@@ -7,6 +7,7 @@ const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 // Create a dense index with integrated embedding
 const gptProjectIndex = pc.Index("gpt-project");
 
+// create ( storing ) memory in the pinecone DB
 async function createMemory({ vectors, metadata, messageId }) {
   await gptProjectIndex.upsert([
     {
@@ -17,11 +18,12 @@ async function createMemory({ vectors, metadata, messageId }) {
   ]);
 }
 
+// query ( fetching ) memory from the pinecone DB for ltm
 async function queryMemory({ queryVector, limit = 5, metadata }) {
   const data = await gptProjectIndex.query({
     vector: queryVector,
     topK: limit,
-    filter: metadata ? { metadata } : undefined,
+    filter: metadata ? metadata : undefined,
     includeMetadata: true,
   });
 
