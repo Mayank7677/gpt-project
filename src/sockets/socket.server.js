@@ -72,8 +72,7 @@ function initSocketServer(httpServer) {
         Message.find({ chat: msgPayload.chat })
           .sort({ createdAt: -1 })
           .limit(3)
-          .lean()
-          .reverse(),
+          .lean(),
 
         createMemory({
           vectors: embedding,
@@ -86,6 +85,8 @@ function initSocketServer(httpServer) {
         }),
       ]);
 
+      console.log('memory : ', memory)
+
       /*
       creating long term memory
       creating short term memory
@@ -93,7 +94,7 @@ function initSocketServer(httpServer) {
       const [ltm, stm] = await Promise.all([
         [
           {
-            role: "system",
+            role: "user",
             parts: [
               {
                 text: `
@@ -104,7 +105,7 @@ function initSocketServer(httpServer) {
           },
         ],
 
-        chatHistory.map((item) => {
+        chatHistory.reverse().map((item) => {
           return {
             role: item.role,
             parts: [{ text: item.content }],
@@ -112,8 +113,14 @@ function initSocketServer(httpServer) {
         }),
       ]);
 
+      console.log('ltm : ', ltm)
+      console.log('----------------------------------')
+      console.log('stm : ', stm)
+
       // generating response using long term memory and short term memory
       const response = await generateResponse([...ltm, ...stm]);
+
+      console.log("AI Response : ", response);
 
       // emitting AI's response to the client
       socket.emit("ai-response", {
